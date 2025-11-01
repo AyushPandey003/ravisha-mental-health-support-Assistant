@@ -546,6 +546,13 @@ async def get_client():
             
             async function startRecording() {
                 try {
+                    // Check if browser supports getUserMedia
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        const hostname = window.location.hostname;
+                        const port = window.location.port || '8001';
+                        throw new Error(`Microphone not available. Enable it in Chrome:\nchrome://flags/#unsafely-treat-insecure-origin-as-secure\nAdd: http://${hostname}:${port}`);
+                    }
+                    
                     const stream = await navigator.mediaDevices.getUserMedia({ 
                         audio: {
                             channelCount: 1,
@@ -689,6 +696,26 @@ async def get_client():
                 const messagesDiv = document.getElementById('messages');
                 messagesDiv.scrollTop = messagesDiv.scrollHeight;
             }
+            
+            // Check microphone support on page load
+            window.addEventListener('DOMContentLoaded', () => {
+                const protocol = window.location.protocol;
+                const hostname = window.location.hostname;
+                
+                // Show helpful message for HTTP access
+                if (protocol === 'http:' && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+                    addMessage('system', '🔧 To enable microphone over HTTP, use Chrome with flag:');
+                    addMessage('system', '1. Open: chrome://flags/#unsafely-treat-insecure-origin-as-secure');
+                    addMessage('system', `2. Add: http://${hostname}:${window.location.port || '8001'}`);
+                    addMessage('system', '3. Set to "Enabled" and restart Chrome');
+                    addMessage('system', '━'.repeat(50));
+                }
+                
+                // Check if microphone API is available
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    addMessage('error', '⚠️ Microphone API not available in this browser. Please use Chrome or Firefox.');
+                }
+            });
         </script>
     </body>
     </html>
@@ -858,4 +885,35 @@ async def text_to_speech(text: str, language: str = "en"):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    import sys
+    
+    # Check for SSL certificate arguments
+    ssl_keyfile = None
+    ssl_certfile = None
+    
+    # Parse command line arguments for SSL
+    if "--ssl-keyfile" in sys.argv:
+        idx = sys.argv.index("--ssl-keyfile")
+        ssl_keyfile = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else None
+    
+    if "--ssl-certfile" in sys.argv:
+        idx = sys.argv.index("--ssl-certfile")
+        ssl_certfile = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else None
+    
+    # Run with or without SSL
+    if ssl_keyfile and ssl_certfile:
+        print(f"🔒 Starting server with SSL/HTTPS")
+        print(f"   Key file: {ssl_keyfile}")
+        print(f"   Cert file: {ssl_certfile}")
+        uvicorn.run(
+            app, 
+            host="0.0.0.0", 
+            port=8001,
+            ssl_keyfile=ssl_keyfile,
+            ssl_certfile=ssl_certfile
+        )
+    else:
+        print("⚠️  Starting server without SSL (HTTP only)")
+        print("   For HTTPS, run with: --ssl-keyfile <key.pem> --ssl-certfile <cert.pem>")
+        uvicorn.run(app, host="0.0.0.0", port=8001)
+
