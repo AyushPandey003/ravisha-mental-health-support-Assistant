@@ -6,5 +6,4 @@ google-generativeai
 numpy
 librosa
 soundfile
-scipy
 gtts

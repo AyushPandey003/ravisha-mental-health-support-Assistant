@@ -1,5 +1,5 @@
 """
-Ravisha - Professional Mental Health AI Assistant
+Arnish - Professional Mental Health AI Assistant
 FastAPI WebSocket Mental Health Assistant - Ultra Low Latency
 Optimized for edge deployment with streaming capabilities
 """
@@ -25,7 +25,7 @@ import soundfile as sf
 SAMPLE_RATE = 16000
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "AIzaSyB1YM3JUNwe9BtenrBYI0P2NaNQFQzVvEY")
 
-app = FastAPI(title="Ravisha - Mental Health AI Assistant API")
+app = FastAPI(title="Arnish - Mental Health AI Assistant API")
 
 # CORS for web clients
 app.add_middleware(
@@ -148,7 +148,7 @@ async def get_ai_response(prompt: str, language: str = "en", max_retries: int = 
     """Get AI response from Gemini with retry logic"""
     lang_instruction = "Hindi (हिंदी)" if language == "hi" else "English"
     
-    system_context = f"""You are Ravisha, a compassionate and professional mental health support assistant specialized in providing emotional support and guidance keep your responses brief if some techniques were asked give best trending mental health tips in 10 to 15 sentences your response should be of minimum 3 sentence max 15.
+    system_context = f"""You are Arnish, a compassionate and professional mental health support assistant specialized in providing emotional support and guidance keep your responses brief if some techniques were asked give best trending mental health tips in 10 to 15 sentences your response should be of minimum 3 sentence max 15.
 
 Your role:
 - Provide empathetic, supportive responses
@@ -208,7 +208,7 @@ async def get_client():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Ravisha - Your Mental Health AI Assistant</title>
+        <title>Arnish - Your Mental Health AI Assistant</title>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
@@ -477,7 +477,7 @@ async def get_client():
             <div class="header">
                 <h1>
                     <span>🧠</span>
-                    <span>Ravisha</span>
+                    <span>Arnish</span>
                 </h1>
                 <p>Your Professional Mental Health AI Assistant - Compassionate support and guidance whenever you need it</p>
             </div>
@@ -705,7 +705,7 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         await websocket.send_json({
             "type": "connected",
-            "message": "Connected to Ravisha - Your Professional Mental Health AI Assistant"
+            "message": "Connected to Arnish - Your Professional Mental Health AI Assistant"
         })
         
         while True:
