@@ -2,9 +2,9 @@ fastapi
 uvicorn[standard]
 python-multipart
 websockets
-openai-whisper
 google-generativeai
 numpy
 librosa
 soundfile
 scipy
+gtts

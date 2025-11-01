@@ -12,17 +12,17 @@ import numpy as np
 import librosa
 from pathlib import Path
 from typing import Optional
+from io import BytesIO
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
-import whisper
-from google import genai
+from fastapi.responses import HTMLResponse, StreamingResponse
+import google.generativeai as genai
+from gtts import gTTS
 
 import soundfile as sf
 
 SAMPLE_RATE = 16000
-WHISPER_MODEL_NAME = os.getenv("WHISPER_MODEL", "base")  
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "AIzaSyB1YM3JUNwe9BtenrBYI0P2NaNQFQzVvEY")
 
 app = FastAPI(title="Ravisha - Mental Health AI Assistant API")
@@ -36,19 +36,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-whisper_model = None
 genai_client = None
 
 
 async def load_models():
-    """Load models on startup to avoid cold starts"""
-    global whisper_model, genai_client
+    """Initialize API clients on startup"""
+    global genai_client
     
-    print(f"[startup] Loading Whisper model: {WHISPER_MODEL_NAME}")
-    whisper_model = whisper.load_model(WHISPER_MODEL_NAME)
-    
-    print("[startup] Initializing Gemini client")
-    genai_client = genai.Client(api_key=GOOGLE_API_KEY)
+    print("[startup] Initializing Gemini client for transcription and AI responses")
+    genai.configure(api_key=GOOGLE_API_KEY)
+    genai_client = genai.GenerativeModel('gemini-2.0-flash-exp')
+    print("[startup] Gemini client ready")
 
 
 @app.on_event("startup")
@@ -56,100 +54,79 @@ async def startup_event():
     await load_models()
 
 
+
+
 async def transcribe_audio(audio_data: np.ndarray, language: Optional[str] = None) -> tuple[str, str]:
-    """Transcribe audio using Whisper with improved Hindi detection and accuracy"""
+    """Transcribe audio using Gemini's audio understanding with improved Hindi detection"""
+    if not genai_client:
+        raise Exception("Gemini client not initialized.")
+    
+    # Save audio to temporary file
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         sf.write(tmp.name, audio_data, SAMPLE_RATE)
         tmp_path = tmp.name
     
     try:
+        # Upload audio file to Gemini
+        audio_file = genai.upload_file(path=tmp_path)
+        
+        # Determine language instruction
         if language and language != "auto":
-            # Force the specified language for transcription with optimized parameters
-            transcribe_params = {
-                "fp16": False,
-                "task": "transcribe",
-                "verbose": False,
-                "language": language,
-            }
-            
-            # Add Hindi-specific optimizations
-            if language == "hi":
-                transcribe_params.update({
-                    "initial_prompt": "यह हिंदी में बोला गया है। नमस्ते, मैं, है, हूं, के, की, को, से, में, पर, और, या, लेकिन",
-                    "temperature": 0.0,  # More deterministic for better Hindi accuracy
-                    "compression_ratio_threshold": 2.8,  # Adjusted for Hindi
-                    "no_speech_threshold": 0.5,
-                })
-            
-            result = whisper_model.transcribe(tmp_path, **transcribe_params)
-            detected_lang = language
-            text = result.get("text", "").strip()
-            print(f"[transcribe] Forced language: {language}, Text: {text[:100]}...")
+            lang_instruction = "Transcribe this audio in Hindi (Devanagari script)" if language == "hi" else "Transcribe this audio in English"
         else:
-            # First pass: auto-detect language with improved parameters
-            result = whisper_model.transcribe(
-                tmp_path, 
-                fp16=False,
-                task="transcribe",
-                verbose=False,
-                temperature=0.0,  # More deterministic
-            )
-            detected_lang = result.get("language", "en")
-            text = result.get("text", "").strip()
+            lang_instruction = "Transcribe this audio. Detect the language automatically. If it's Hindi, use Devanagari script. If it's English, use English."
+        
+        # Create transcription prompt
+        prompt = f"""{lang_instruction}
+
+Important:
+- Output ONLY the transcribed text, nothing else
+- Do not add any explanations, labels, or formatting
+- If Hindi, use Devanagari script (देवनागरी)
+- If English, use standard English text"""
+        
+        # Get transcription from Gemini
+        response = genai_client.generate_content([audio_file, prompt])
+        text = response.text.strip()
+        
+        # Detect language from transcription
+        has_devanagari = text and any('\u0900' <= char <= '\u097F' for char in text)
+        
+        hindi_phonetic_patterns = [
+            'kya', 'hai', 'hoon', 'mein', 'main', 'aap', 'tum', 'hum',
+            'kaise', 'kahan', 'kab', 'kyun', 'nahin', 'nahi', 'thik',
+            'accha', 'theek', 'bahut', 'bohot', 'kuch', 'koi', 'yeh', 'woh'
+        ]
+        words = text.lower().split()
+        hindi_pattern_count = sum(1 for word in words if any(pattern in word for pattern in hindi_phonetic_patterns))
+        
+        detected_lang = "hi" if (has_devanagari or hindi_pattern_count >= 2) else "en"
+        
+        print(f"[transcribe] Detected language: {detected_lang}, Text: {text[:100]}...")
+        
+        # If auto-detect and appears to be Hindi but not in Devanagari, retry with Hindi forced
+        if (not language or language == "auto") and hindi_pattern_count >= 2 and not has_devanagari:
+            print(f"[transcribe] Hindi detected, re-transcribing with Hindi forced...")
             
-            print(f"[transcribe] Auto-detected: {detected_lang}, Text: {text[:100]}...")
+            prompt_hindi = """Transcribe this audio in Hindi using ONLY Devanagari script (देवनागरी लिपि).
+
+Important:
+- Output ONLY the Hindi transcription in Devanagari
+- Do not use Roman/Latin script
+- Do not add explanations"""
             
-            # Enhanced Hindi detection logic
-            has_devanagari = text and any('\u0900' <= char <= '\u097F' for char in text)
-            
-            # Check for common Hindi phonetic patterns in English transcription
-            hindi_phonetic_patterns = [
-                'kya', 'hai', 'hoon', 'mein', 'main', 'aap', 'tum', 'hum',
-                'kaise', 'kahan', 'kab', 'kyun', 'nahin', 'nahi', 'thik',
-                'accha', 'theek', 'bahut', 'bohot', 'kuch', 'koi', 'yeh', 'woh'
-            ]
-            words = text.lower().split()
-            hindi_pattern_count = sum(1 for word in words if any(pattern in word for pattern in hindi_phonetic_patterns))
-            likely_hindi_phonetic = hindi_pattern_count >= 2  # At least 2 Hindi patterns
-            
-            # Detect garbled transcription (nonsensical English for Hindi audio)
-            suspicious_transcription = len(words) > 0 and (
-                # Very short words dominate
-                sum(1 for w in words if len(w) <= 2) > len(words) * 0.4 or
-                # Known garbled patterns from Hindi
-                any(pattern in text.lower() for pattern in ['magnetaved', 'claro', 'demás', 'gaana', 'karna'])
-            )
-            
-            # Calculate confidence for Hindi detection
-            hindi_indicators = sum([
-                detected_lang == 'hi',
-                has_devanagari,
-                likely_hindi_phonetic,
-                suspicious_transcription
-            ])
-            
-            # If strong Hindi indication (2+ indicators), re-transcribe with Hindi forced
-            if hindi_indicators >= 2 or detected_lang == 'hi':
-                print(f"[transcribe] Hindi detected (indicators: {hindi_indicators}), re-transcribing with Hindi optimization...")
-                result = whisper_model.transcribe(
-                    tmp_path,
-                    language='hi',  # Force Hindi
-                    fp16=False,
-                    task="transcribe",
-                    verbose=False,
-                    # Hindi language prompt with common words to improve accuracy
-                    initial_prompt="यह हिंदी में बोला गया है। नमस्ते, मैं, है, हूं, के, की, को, से, में, पर, और, या, लेकिन, कैसे, क्या, कहां, कब, क्यों",
-                    temperature=0.0,  # Deterministic for better accuracy
-                    compression_ratio_threshold=2.8,
-                    no_speech_threshold=0.5,
-                    condition_on_previous_text=True,  # Better context understanding
-                )
-                text = result.get("text", "").strip()
-                detected_lang = "hi"
-                print(f"[transcribe] Hindi transcription: {text[:100]}...")
+            response = genai_client.generate_content([audio_file, prompt_hindi])
+            text = response.text.strip()
+            detected_lang = "hi"
+            print(f"[transcribe] Hindi transcription: {text[:100]}...")
         
         return text, detected_lang
+        
+    except Exception as e:
+        print(f"[transcribe] Error: {str(e)}")
+        return "", "en"
     finally:
+        # Clean up temporary file
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
@@ -200,10 +177,7 @@ Your response:"""
     
     for attempt in range(max_retries):
         try:
-            response = genai_client.models.generate_content(
-                model="gemini-2.5-flash-lite",  # Use experimental for better availability
-                contents=system_context
-            )
+            response = genai_client.generate_content(system_context)
             return response.text.replace('*', '').replace('#', '').replace('`', '')
         except Exception as e:
             error_msg = str(e)
@@ -851,11 +825,37 @@ async def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy",
-        "whisper_model": WHISPER_MODEL_NAME,
-        "models_loaded": whisper_model is not None and genai_client is not None
+        "gemini_initialized": genai_client is not None
     }
+
+
+@app.get("/tts")
+async def text_to_speech(text: str, language: str = "en"):
+    """Generate speech from text using gTTS"""
+    try:
+        # Map language codes for gTTS
+        lang_map = {
+            "en": "en",
+            "hi": "hi",
+            "hi-IN": "hi"
+        }
+        tts_lang = lang_map.get(language, "en")
+        
+        # Create gTTS object
+        tts = gTTS(text=text, lang=tts_lang, slow=False)
+        
+        # Generate audio in memory
+        audio_buffer = BytesIO()
+        tts.write_to_fp(audio_buffer)
+        audio_buffer.seek(0)
+        
+        # Return the audio file
+        return StreamingResponse(audio_buffer, media_type="audio/mpeg")
+    except Exception as e:
+        print(f"[tts] Error generating speech: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)
