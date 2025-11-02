@@ -167,31 +167,98 @@ Important:
             os.remove(tmp_path)
 
 
-def detect_crisis_keywords(text: str) -> bool:
-    """Detect crisis keywords"""
-    crisis_keywords = [
-        'suicide', 'kill myself', 'end my life', 'want to die', 'self harm',
-        'hurt myself', 'no reason to live', 'better off dead',
-        'आत्महत्या', 'मरना चाहता', 'जान देना', 'खुद को नुकसान',
-        'আত্মহত্যা', 'মরতে চাই', 'জীবন শেষ', 'নিজেকে আঘাত'
-    ]
-    return any(keyword in text.lower() for keyword in crisis_keywords)
+def detect_language_from_text(text: str) -> str:
+    """Detect language from text using Unicode ranges and patterns"""
+    if not text:
+        return "en"
+    
+    # Check for script presence
+    has_devanagari = any('\u0900' <= char <= '\u097F' for char in text)
+    has_bengali = any('\u0980' <= char <= '\u09FF' for char in text)
+    has_tamil = any('\u0B80' <= char <= '\u0BFF' for char in text)
+    has_telugu = any('\u0C00' <= char <= '\u0C7F' for char in text)
+    has_gujarati = any('\u0A80' <= char <= '\u0AFF' for char in text)
+    has_kannada = any('\u0C80' <= char <= '\u0CFF' for char in text)
+    has_malayalam = any('\u0D00' <= char <= '\u0D7F' for char in text)
+    has_punjabi = any('\u0A00' <= char <= '\u0A7F' for char in text)
+    
+    # Return detected language
+    if has_devanagari:
+        return "hi"
+    elif has_bengali:
+        return "bn"
+    elif has_tamil:
+        return "ta"
+    elif has_telugu:
+        return "te"
+    elif has_gujarati:
+        return "gu"
+    elif has_kannada:
+        return "kn"
+    elif has_malayalam:
+        return "ml"
+    elif has_punjabi:
+        return "pa"
+    
+    return "en"
+
+
+def detect_crisis_keywords(text: str) -> tuple[bool, str]:
+    """Detect crisis keywords in multiple languages and return crisis status with language"""
+    crisis_keywords = {
+        'en': ['suicide', 'kill myself', 'end my life', 'want to die', 'self harm',
+               'hurt myself', 'no reason to live', 'better off dead', 'end it all',
+               'can\'t go on', 'no hope', 'worthless'],
+        'hi': ['आत्महत्या', 'मरना चाहता', 'मरना चाहती', 'जान देना', 'खुद को नुकसान',
+               'मौत चाहता', 'जीना नहीं चाहता', 'खत्म करना चाहता', 'कोई उम्मीद नहीं'],
+        'bn': ['আত্মহত্যা', 'মরতে চাই', 'জীবন শেষ', 'নিজেকে আঘাত', 'বাঁচতে চাই না',
+               'মরে যেতে চাই', 'কোন আশা নেই'],
+        'ta': ['தற்கொலை', 'சாக விரும்புகிறேன்', 'வாழ விரும்பவில்லை'],
+        'te': ['ఆత్మహత్య', 'చావాలనుకుంటున్నాను', 'బ్రతకాలని లేదు'],
+        'gu': ['આત્મહત્યા', 'મરવું છે', 'જીવવું નથી'],
+        'kn': ['ಆತ್ಮಹತ್ಯೆ', 'ಸಾಯಬೇಕು', 'ಬದುಕು ಬೇಡ'],
+        'ml': ['ആത്മഹത്യ', 'മരിക്കണം', 'ജീവിക്കണ്ട'],
+        'pa': ['ਖੁਦਕੁਸ਼ੀ', 'ਮਰਨਾ ਚਾਹੁੰਦਾ', 'ਜੀਣਾ ਨਹੀਂ ਚਾਹੁੰਦਾ']
+    }
+    
+    text_lower = text.lower()
+    
+    # Check each language's keywords
+    for lang, keywords in crisis_keywords.items():
+        for keyword in keywords:
+            if keyword.lower() in text_lower:
+                return True, lang
+    
+    return False, detect_language_from_text(text)
 
 
 
 
 
 async def get_ai_response(prompt: str, language: str = "en", max_retries: int = 3) -> str:
-    """Get AI response from Gemini with retry logic"""
-    if language == "hi":
-        lang_instruction = "Hindi (हिंदी)"
-        script_instruction = "YOU MUST USE HINDI DEVANAGARI SCRIPT ONLY (जैसे: नमस्ते, मैं अर्निश हूं)"
-    elif language == "bn":
-        lang_instruction = "Bengali (বাংলা)"
-        script_instruction = "YOU MUST USE BENGALI SCRIPT ONLY (যেমন: নমস্কার, আমি অর্নিশ)"
-    else:
-        lang_instruction = "English"
-        script_instruction = ""
+    """Get AI response from Gemini with retry logic and multi-language support"""
+    
+    # Language configuration
+    language_config = {
+        "en": {"name": "English", "script": ""},
+        "hi": {"name": "Hindi (हिंदी)", "script": "YOU MUST USE HINDI DEVANAGARI SCRIPT ONLY (जैसे: नमस्ते, मैं अर्निश हूं)"},
+        "bn": {"name": "Bengali (বাংলা)", "script": "YOU MUST USE BENGALI SCRIPT ONLY (যেমন: নমস্কার, আমি অর্নিশ)"},
+        "ta": {"name": "Tamil (தமிழ்)", "script": "YOU MUST USE TAMIL SCRIPT ONLY (எடுத்துக்காட்டு: வணக்கம், நான் அர்னிஷ்)"},
+        "te": {"name": "Telugu (తెలుగు)", "script": "YOU MUST USE TELUGU SCRIPT ONLY (ఉదాహరణ: నమస్కారం, నేను అర్నిష్)"},
+        "gu": {"name": "Gujarati (ગુજરાતી)", "script": "YOU MUST USE GUJARATI SCRIPT ONLY (ઉદાહરણ: નમસ્તે, હું અર્નિશ છું)"},
+        "kn": {"name": "Kannada (ಕನ್ನಡ)", "script": "YOU MUST USE KANNADA SCRIPT ONLY (ಉದಾಹರಣೆ: ನಮಸ್ಕಾರ, ನಾನು ಅರ್ನಿಷ್)"},
+        "ml": {"name": "Malayalam (മലയാളം)", "script": "YOU MUST USE MALAYALAM SCRIPT ONLY (ഉദാഹരണം: നമസ്കാരം, ഞാൻ അർനിഷ്)"},
+        "pa": {"name": "Punjabi (ਪੰਜਾਬੀ)", "script": "YOU MUST USE PUNJABI SCRIPT ONLY (ਉਦਾਹਰਨ: ਸਤ ਸ੍ਰੀ ਅਕਾਲ, ਮੈਂ ਅਰਨਿਸ਼ ਹਾਂ)"}
+    }
+    
+    # Auto-detect language if set to "auto"
+    if language == "auto":
+        language = detect_language_from_text(prompt)
+        print(f"[ai_response] Auto-detected language: {language}")
+    
+    config = language_config.get(language, language_config["en"])
+    lang_instruction = config["name"]
+    script_instruction = config["script"]
     
     system_context = f"""You are Arnish, a compassionate and professional mental health support assistant specialized in providing emotional support and guidance keep your responses brief if some techniques were asked give best trending mental health tips in 15 to 20 sentences your response should be of minimum 3 sentence max 15.
 
@@ -211,10 +278,17 @@ Guidelines:
 - In crisis situations, encourage professional help
 
 CRITICAL Language Instruction: 
-- If language is Hindi (hi), you MUST respond ONLY in Hindi using Devanagari script (देवनागरी लिपि).
-- If language is Bengali (bn), you MUST respond ONLY in Bengali using Bengali script (বাংলা লিপি).
-- If language is English (en), respond only in English.
-- Current language: {lang_instruction}
+- DETECT and RESPOND in the SAME language as the user's message
+- Current detected language: {lang_instruction}
+- If Hindi: Use Devanagari script (देवनागरी)
+- If Bengali: Use Bengali script (বাংলা)
+- If Tamil: Use Tamil script (தமிழ்)
+- If Telugu: Use Telugu script (తెలుగు)
+- If Gujarati: Use Gujarati script (ગુજરાતી)
+- If Kannada: Use Kannada script (ಕನ್ನಡ)
+- If Malayalam: Use Malayalam script (മലയാളം)
+- If Punjabi: Use Punjabi script (ਪੰਜਾਬੀ)
+- If English: Use English only
 {f"- {script_instruction}" if script_instruction else ""}
 
 User message: {prompt}
@@ -242,11 +316,19 @@ Your response:"""
             break
     
     # Fallback responses based on language
-    if language == 'hi':
-        return "मुझे अभी आपकी बात समझने में परेशानी हो रही है। कृपया फिर से कोशिश करें।"
-    elif language == 'bn':
-        return "আমি এখন আপনার কথা বুঝতে সমস্যা হচ্ছে। অনুগ্রহ করে আবার চেষ্টা করুন।"
-    return "I'm having trouble processing that right now. Please try again in a moment."
+    fallback_messages = {
+        'hi': "मुझे अभी आपकी बात समझने में परेशानी हो रही है। कृपया फिर से कोशिश करें।",
+        'bn': "আমি এখন আপনার কথা বুঝতে সমস্যা হচ্ছে। অনুগ্রহ করে আবার চেষ্টা করুন।",
+        'ta': "நான் இப்போது உங்கள் செய்தியைப் புரிந்து கொள்வதில் சிக்கல் உள்ளது. மீண்டும் முயற்சிக்கவும்.",
+        'te': "నేను ఇప్పుడు మీ సందేశాన్ని అర్థం చేసుకోవడంలో సమస్య ఉంది. దయచేసి మళ్లీ ప్రయత్నించండి.",
+        'gu': "મને હમણાં તમારી વાત સમજવામાં સમસ્યા આવી રહી છે. કૃપા કરીને ફરી પ્રયાસ કરો.",
+        'kn': "ನಾನು ಈಗ ನಿಮ್ಮ ಸಂದೇಶವನ್ನು ಅರ್ಥಮಾಡಿಕೊಳ್ಳುವಲ್ಲಿ ಸಮಸ್ಯೆ ಎದುರಿಸುತ್ತಿದ್ದೇನೆ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
+        'ml': "എനിക്ക് ഇപ്പോൾ നിങ്ങളുടെ സന്ദേശം മനസ്സിലാക്കുന്നതിൽ പ്രശ്നമുണ്ട്. ദയവായി വീണ്ടും ശ്രമിക്കുക.",
+        'pa': "ਮੈਨੂੰ ਹੁਣ ਤੁਹਾਡੀ ਗੱਲ ਸਮਝਣ ਵਿੱਚ ਮੁਸ਼ਕਲ ਆ ਰਹੀ ਹੈ। ਕਿਰਪਾ ਕਰਕੇ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।",
+        'en': "I'm having trouble processing that right now. Please try again in a moment."
+    }
+    return fallback_messages.get(language, fallback_messages['en'])
+
 
 
 @app.get("/")
@@ -541,10 +623,16 @@ async def get_client():
                 <div class="language-selector">
                     <label>🌐 Language:</label>
                     <select id="language">
-                        <option value="en">English</option>
-                        <option value="hi">हिंदी (Hindi)</option>
-                        <option value="bn">বাংলা (Bengali)</option>
-                        <option value="auto">Auto-detect</option>
+                        <option value="auto">🔄 Auto-detect (All Languages)</option>
+                        <option value="en">🇬🇧 English</option>
+                        <option value="hi">🇮🇳 हिंदी (Hindi)</option>
+                        <option value="bn">🇧🇩 বাংলা (Bengali)</option>
+                        <option value="ta">🇮🇳 தமிழ் (Tamil)</option>
+                        <option value="te">🇮🇳 తెలుగు (Telugu)</option>
+                        <option value="gu">🇮🇳 ગુજરાતી (Gujarati)</option>
+                        <option value="kn">🇮🇳 ಕನ್ನಡ (Kannada)</option>
+                        <option value="ml">🇮🇳 മലയാളം (Malayalam)</option>
+                        <option value="pa">🇮🇳 ਪੰਜਾਬੀ (Punjabi)</option>
                     </select>
                 </div>
                 
@@ -848,14 +936,26 @@ async def websocket_endpoint(websocket: WebSocket):
                     
                     print(f"[websocket] Detected language: {language}")
                     
-                    # Check for crisis
-                    if detect_crisis_keywords(text):
-                        crisis_response = "I'm concerned. Please contact emergency services or a crisis helpline." if language == "en" else "मैं चिंतित हूं। कृपया आपातकालीन सेवाओं या संकट हेल्पलाइन से संपर्क करें।"
+                    # Check for crisis with multi-language support
+                    is_crisis, crisis_lang = detect_crisis_keywords(text)
+                    if is_crisis:
+                        crisis_messages = {
+                            'en': "🆘 I'm deeply concerned about you. Please reach out for immediate help:\n• National Suicide Prevention Lifeline: 988\n• Crisis Text Line: Text HOME to 741741\nYou matter, and people care about you.",
+                            'hi': "🆘 मैं आपके बारे में बहुत चिंतित हूं। कृपया तुरंत मदद लें:\n• राष्ट्रीय आत्महत्या रोकथाम हेल्पलाइन: 9152987821\n• आप महत्वपूर्ण हैं और लोग आपकी परवाह करते हैं।",
+                            'bn': "🆘 আমি আপনার সম্পর্কে গভীরভাবে উদ্বিগ্ন। অনুগ্রহ করে অবিলম্বে সাহায্য নিন:\n• জাতীয় আত্মহত্যা প্রতিরোধ হেল্পলাইন: 9152987821\n• আপনি গুরুত্বপূর্ণ এবং মানুষ আপনার যত্ন নেয়।",
+                            'ta': "🆘 நான் உங்களைப் பற்றி மிகவும் கவலைப்படுகிறேன். உடனடியாக உதவி பெறுங்கள்:\n• தேசிய தற்கொலை தடுப்பு ஹெல்ப்லைன்: 9152987821\n• நீங்கள் முக்கியமானவர், மக்கள் உங்களைக் கவனிக்கிறார்கள்.",
+                            'te': "🆘 నేను మీ గురించి చాలా ఆందోళన చెందుతున్నాను। దయచేసి వెంటనే సహాయం తీసుకోండి:\n• జాతీయ ఆత్మహత్య నిరోధక హెల్ప్‌లైన్: 9152987821\n• మీరు ముఖ్యం, ప్రజలు మిమ్మల్ని పట్టించుకుంటారు.",
+                            'gu': "🆘 હું તમારા વિશે ખૂબ જ ચિંતિત છું. કૃપા કરીને તાત્કાલિક મદદ લો:\n• રાષ્ટ્રીય આત્મહત્યા નિવારણ હેલ્પલાઇન: 9152987821\n• તમે મહત્વપૂર્ણ છો અને લોકો તમારી કાળજી લે છે.",
+                            'kn': "🆘 ನಾನು ನಿಮ್ಮ ಬಗ್ಗೆ ತುಂಬಾ ಕಾಳಜಿ ವಹಿಸುತ್ತಿದ್ದೇನೆ. ದಯವಿಟ್ಟು ತಕ್ಷಣವೇ ಸಹಾಯ ಪಡೆಯಿರಿ:\n• ರಾಷ್ಟ್ರೀಯ ಆತ್ಮಹತ್ಯೆ ತಡೆ ಹೆಲ್ಪ್‌ಲೈನ್: 9152987821\n• ನೀವು ಮುಖ್ಯ, ಜನರು ನಿಮ್ಮ ಕಾಳಜಿ ವಹಿಸುತ್ತಾರೆ.",
+                            'ml': "🆘 ഞാൻ നിങ്ങളെക്കുറിച്ച് ആഴത്തിൽ ആശങ്കപ്പെടുന്നു. ദയവായി ഉടനടി സഹായം തേടുക:\n• ദേശീയ ആത്മഹത്യാ തടയൽ ഹെൽപ്ലൈൻ: 9152987821\n• നിങ്ങൾ പ്രധാനമാണ്, ആളുകൾ നിങ്ങളെ പരിപാലിക്കുന്നു.",
+                            'pa': "🆘 ਮੈਂ ਤੁਹਾਡੇ ਬਾਰੇ ਬਹੁਤ ਚਿੰਤਤ ਹਾਂ। ਕਿਰਪਾ ਕਰਕੇ ਤੁਰੰਤ ਮਦਦ ਲਓ:\n• ਰਾਸ਼ਟਰੀ ਆਤਮ-ਹੱਤਿਆ ਰੋਕਥਾਮ ਹੈਲਪਲਾਈਨ: 9152987821\n• ਤੁਸੀਂ ਮਹੱਤਵਪੂਰਨ ਹੋ ਅਤੇ ਲੋਕ ਤੁਹਾਡੀ ਪਰਵਾਹ ਕਰਦੇ ਹਨ।"
+                        }
+                        crisis_response = crisis_messages.get(crisis_lang, crisis_messages['en'])
                         await websocket.send_json({
                             "type": "response",
                             "text": crisis_response,
                             "crisis": True,
-                            "language": language
+                            "language": crisis_lang
                         })
                         # Still get AI response even in crisis
                     
@@ -865,7 +965,12 @@ async def websocket_endpoint(websocket: WebSocket):
                         print(f"[websocket] AI Response (first 100 chars): {ai_response[:100]}")
                     except Exception as e:
                         print(f"[websocket] AI response failed: {e}")
-                        ai_response = "I'm having connection issues. Please try again." if language == "en" else "मुझे कनेक्शन में समस्या है। कृपया फिर से कोशिश करें।"
+                        fallback_msgs = {
+                            'en': "I'm having connection issues. Please try again.",
+                            'hi': "मुझे कनेक्शन में समस्या है। कृपया फिर से कोशिश करें।",
+                            'bn': "আমার সংযোগে সমস্যা হচ্ছে। অনুগ্রহ করে আবার চেষ্টা করুন।"
+                        }
+                        ai_response = fallback_msgs.get(language, fallback_msgs['en'])
                     
                     await websocket.send_json({
                         "type": "response",
@@ -907,15 +1012,28 @@ async def health_check():
 
 @app.get("/tts")
 async def text_to_speech(text: str, language: str = "en"):
-    """Generate speech from text using gTTS"""
+    """Generate speech from text using gTTS with multi-language support"""
     try:
-        # Map language codes for gTTS
+        # Map language codes for gTTS (supports all major Indian languages)
         lang_map = {
             "en": "en",
             "hi": "hi",
             "hi-IN": "hi",
             "bn": "bn",
-            "bn-IN": "bn"
+            "bn-IN": "bn",
+            "ta": "ta",
+            "ta-IN": "ta",
+            "te": "te",
+            "te-IN": "te",
+            "gu": "gu",
+            "gu-IN": "gu",
+            "kn": "kn",
+            "kn-IN": "kn",
+            "ml": "ml",
+            "ml-IN": "ml",
+            "pa": "pa",
+            "pa-IN": "pa",
+            "auto": "en"  # Default to English for auto
         }
         tts_lang = lang_map.get(language, "en")
         
