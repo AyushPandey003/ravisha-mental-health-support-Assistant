@@ -19,9 +19,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 import google.generativeai as genai
 from gtts import gTTS
-
+from dotenv import load_dotenv
 import soundfile as sf
-
+load_dotenv()
 SAMPLE_RATE = 16000
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
