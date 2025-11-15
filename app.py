@@ -13,6 +13,7 @@ import librosa
 from pathlib import Path
 from typing import Optional
 from io import BytesIO
+from dotenv import load_dotenv
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +24,9 @@ from dotenv import load_dotenv
 import soundfile as sf
 load_dotenv()
 SAMPLE_RATE = 16000
+# Load environment variables from a .env file (if present)
+load_dotenv()
+
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 app = FastAPI(title="Arnish - Mental Health AI Assistant API")
